@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Infone</title>
+<style>
+  :root{
+    --ink:#0B1620;        /* base */
+    --bar:#081119;        /* status bar */
+    --line:#1E3644;       /* hairlines, 2px on this panel */
+    --text:#E9F2F5;
+    --dim:#8AA4B1;
+    --accent:#FFB13D;
+    --good:#4ADE80;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overscroll-behavior:none}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:"DejaVu Sans",Roboto,system-ui,-apple-system,"Segoe UI",sans-serif;
+    -webkit-user-select:none;user-select:none;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* Touchscreen = no mouse pointer. A mouse still gets one during dev. */
+  @media (pointer:coarse){*{cursor:none}}
+
+  #phone{
+    height:var(--vh, 100dvh);width:var(--vw, 100%);max-width:360px;
+    display:flex;flex-direction:column;
+  }
+
+  /* ---------- status bar ---------- */
+  header{
+    flex:0 0 auto;height:26px;display:flex;align-items:center;gap:8px;
+    padding:0 9px;background:var(--bar);border-bottom:1px solid var(--line);
+  }
+  #clock{font-size:13px;font-weight:600;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+  #date{font-size:11px;color:var(--dim)}
+  .status{margin-left:auto;display:flex;align-items:center;gap:7px}
+  .status svg{display:block}
+  .status .off{opacity:.28}
+  #pct{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;min-width:26px;text-align:right}
+
+  /* ---------- app grid ---------- */
+  .stage{flex:1 1 auto;position:relative;min-height:0}
+  #apps{
+    position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;touch-action:pan-y;scrollbar-width:none;
+    padding:14px 10px 18px;
+    display:grid;grid-template-columns:repeat(3, minmax(0, 84px));
+    justify-content:center;gap:15px 2px;align-content:start;
+  }
+  #apps::-webkit-scrollbar{display:none}
+
+  .app{
+    appearance:none;background:none;border:0;padding:2px 0;font:inherit;color:var(--dim);
+    display:flex;flex-direction:column;align-items:center;gap:6px;
+  }
+  .tile{
+    width:56px;height:56px;border-radius:17px;display:grid;place-items:center;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22), 0 2px 0 rgba(0,0,0,.4);
+    transition:transform .09s ease-out;
+  }
+  .tile svg{width:29px;height:29px;fill:none;stroke:#fff;stroke-width:1.8;
+            stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+  .tile .solid{fill:#fff;stroke:none}
+  .app:active .tile{transform:scale(.9)}
+  .app:focus-visible{outline:none}
+  .app:focus-visible .tile{outline:2px solid var(--accent);outline-offset:3px}
+  .label{
+    font-size:10.5px;line-height:1;color:#AFC4CF;max-width:100%;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+
+  .sec{
+    grid-column:1/-1;margin:6px 2px -2px;font-size:11px;font-weight:400;
+    color:var(--dim);display:flex;align-items:center;gap:8px;
+  }
+  .sec::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  #frame{position:absolute;inset:0;width:100%;height:100%;border:0;
+         background:var(--ink);display:none}
+  #frame.on{display:block}
+  #apps.hidden{display:none}
+
+  /* ---------- nav bar ---------- */
+  nav{
+    flex:0 0 auto;height:42px;display:flex;align-items:stretch;
+    background:var(--bar);border-top:1px solid var(--line);
+  }
+  nav button{
+    flex:1;background:none;border:0;padding:0;color:var(--text);
+    display:grid;place-items:center;
+  }
+  nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;
+          stroke-linecap:round;stroke-linejoin:round;transition:transform .09s ease-out}
+  nav button:active svg{transform:scale(.84)}
+  nav button:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+  nav button[aria-disabled="true"]{opacity:.3}
+
+  /* scroll position indicator — no scrollbar on a resistive panel, so draw one */
+  #track{position:absolute;top:8px;bottom:8px;right:2px;width:3px;border-radius:2px;
+         background:rgba(255,255,255,.06);opacity:0;transition:opacity .25s}
+  #track.on{opacity:1}
+  #thumb{position:absolute;left:0;width:3px;border-radius:2px;background:#3E6579}
+
+  /* ---------- toast ---------- */
+  #toast{
+    position:fixed;left:calc(var(--vw, 100%) / 2);bottom:54px;transform:translate(-50%,8px);
+    max-width:86%;padding:7px 12px;border-radius:999px;
+    background:#1C3140;border:1px solid var(--line);color:var(--text);
+    font-size:11.5px;line-height:1.35;text-align:center;
+    opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;
+  }
+  #toast.on{opacity:1;transform:translate(-50%,0)}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="phone">
+  <header>
+    <span id="clock">--:--</span>
+    <span id="date"></span>
+    <div class="status">
+      <svg id="signal" width="17" height="12" viewBox="0 0 17 12" aria-label="Signal">
+        <rect x="0"  y="8"   width="3" height="4"  rx="1" fill="#fff"/>
+        <rect x="4.6" y="5.5" width="3" height="6.5" rx="1" fill="#fff"/>
+        <rect x="9.2" y="3"   width="3" height="9"  rx="1" fill="#fff"/>
+        <rect x="13.8" y="0"  width="3" height="12" rx="1" fill="#fff"/>
+      </svg>
+      <svg id="wifi" width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="#fff"
+           stroke-width="1.7" stroke-linecap="round" aria-label="Wi-Fi">
+        <path d="M1.2 4.2a10 10 0 0 1 13.6 0"/>
+        <path d="M3.9 7a6.2 6.2 0 0 1 8.2 0"/>
+        <circle cx="8" cy="9.9" r="1.05" fill="#fff" stroke="none"/>
+      </svg>
+      <svg width="24" height="12" viewBox="0 0 24 12" aria-label="Battery">
+        <rect x="0.8" y="1.4" width="19" height="9.2" rx="2.6" fill="none" stroke="#fff" stroke-width="1.4"/>
+        <path d="M21.4 4.4v3.2a1.9 1.9 0 0 0 0-3.2z" fill="#fff"/>
+        <rect id="fuel" x="2.4" y="3" width="15.8" height="6" rx="1.4" fill="#fff"/>
+        <path id="bolt" d="M11.4 2.4 8.2 6.6h2.4l-.9 3.4 3.4-4.4h-2.5z" fill="var(--bar)" style="display:none"/>
+      </svg>
+      <span id="pct"></span>
+    </div>
+  </header>
+
+  <div class="stage">
+    <main id="apps"></main>
+    <iframe id="frame" title="App" src="about:blank"
+            allow="fullscreen; autoplay; clipboard-read; clipboard-write"></iframe>
+    <div id="track"><div id="thumb"></div></div>
+  </div>
+
+  <nav>
+    <button id="navBack" aria-label="Back" aria-disabled="true">
+      <svg viewBox="0 0 24 24"><path d="M15.4 3.8 6.2 12l9.2 8.2z"/></svg>
+    </button>
+    <button id="navHome" aria-label="Home">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.6"/></svg>
+    </button>
+    <button id="navRecents" aria-label="Recent apps">
+      <svg viewBox="0 0 24 24"><rect x="4.6" y="4.6" width="14.8" height="14.8" rx="2.6"/></svg>
+    </button>
+  </nav>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ------------------------------------------------------------------
+   Chromium won't make a window narrower than ~500px, so on a 320px
+   panel the compositor clips it and the right side never shows.
+   Lay out inside what's actually visible instead of the window.
+------------------------------------------------------------------ */
+const phone = document.getElementById('phone');
+
+function fitViewport(){
+  const vw = Math.min(innerWidth,  screen.width  || innerWidth);
+  const vh = Math.min(innerHeight, screen.height || innerHeight);
+  const root = document.documentElement.style;
+  root.setProperty('--vw', vw + 'px');
+  root.setProperty('--vh', vh + 'px');
+  // Centre normally; hug the left edge when the window overhangs the screen,
+  // because only the left part of it is ever on the panel.
+  phone.style.marginInline = (innerWidth > vw + 1) ? '0' : 'auto';
+}
+fitViewport();
+addEventListener('resize', fitViewport);
+
+/* ------------------------------------------------------------------
+   Apps. Add or reorder freely — the grid rebuilds from this list.
+   url: where the tile goes. Leave it out and the tile says so.
+------------------------------------------------------------------ */
+const APPS = [
+  {id:'phone',    name:'Phone',      color:'#0FA3A3'},
+  {id:'messages', name:'Messages',   color:'#3B82F6'},
+  {id:'whatsapp', name:'WhatsApp',   color:'#22C55E', url:'https://web.whatsapp.com'},
+  {id:'mail',     name:'Mail',       color:'#0EA5E9', url:'https://mail.google.com'},
+  {id:'browser',  name:'Browser',    color:'#6366F1', url:'https://duckduckgo.com'},
+  {id:'camera',   name:'Camera',     color:'#6B7280'},
+  {id:'photos',   name:'Photos',     color:'#EC4899'},
+  {id:'music',    name:'Music',      color:'#F43F5E'},
+  {id:'maps',     name:'Maps',       color:'#059669', url:'https://www.openstreetmap.org'},
+  {id:'weather',  name:'Weather',    color:'#F59E0B'},
+  {id:'calendar', name:'Calendar',   color:'#EF4444', url:'https://calendar.google.com'},
+  {id:'clock',    name:'Clock',      color:'#8B5CF6'},
+  {id:'notes',    name:'Notes',      color:'#CA8A04'},
+  {id:'files',    name:'Files',      color:'#0369A1'},
+  {id:'calc',     name:'Calculator', color:'#475569'},
+  {id:'terminal', name:'Terminal',   color:'#111827'},
+  {id:'radio',    name:'Radio',      color:'#A855F7'},
+  {id:'settings', name:'Settings',   color:'#4B5563'}
+];
+
+/* cmd: runs natively on the Pi via the helper below. url: opens in the browser. */
+const GAMES = [
+  {id:'minecraft', name:'Minecraft',  color:'#4E7A2A', url:'https://classic.minecraft.net', direct:true},
+  {id:'fortnite',  name:'Fortnite',   color:'#7C3AED', url:'https://www.xbox.com/play'},
+  {id:'roblox',    name:'Roblox',     color:'#DC2626', url:'https://www.roblox.com'},
+  {id:'doom',      name:'Doom',       color:'#7F1D1D', cmd:'chocolate-doom'},
+  {id:'tetris',    name:'Tetris',     color:'#1D4ED8', url:'https://tetris.com/play-tetris'},
+  {id:'chess',     name:'Chess',      color:'#3F4A56', url:'https://lichess.org'},
+  {id:'wordle',    name:'Wordle',     color:'#6AAA64', url:'https://www.nytimes.com/games/wordle/index.html'},
+  {id:'g2048',     name:'2048',       color:'#E6B325', url:'https://play2048.co'},
+  {id:'slither',   name:'Slither.io', color:'#06B6D4', url:'https://slither.io'},
+  {id:'solitaire', name:'Solitaire',  color:'#0F766E', cmd:'sol'},
+  {id:'arcade',    name:'Arcade',     color:'#C026D3', cmd:'retroarch'}
+];
+
+const GROUPS = [
+  {title:null,    items:APPS},
+  {title:'Games', items:GAMES}
+];
+const ALL = GROUPS.flatMap(g => g.items);
+
+/* Glyphs: 24x24, stroked, drawn a little heavy so they survive a low-DPI panel. */
+const GLYPH = {
+  phone:'<path d="M6.5 10.5a14 14 0 0 0 7 7l2.1-2.1a1.2 1.2 0 0 1 1.2-.3 12 12 0 0 0 3.7.6 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17.5 17.5 0 0 1 3 3.5a1 1 0 0 1 1-1h3.3a1 1 0 0 1 1 1 12 12 0 0 0 .6 3.7 1.2 1.2 0 0 1-.3 1.2z"/>',
+  messages:'<path d="M20.6 11.6a7.6 7.6 0 0 1-11 6.8l-5.2 1.3 1.4-4.7A7.6 7.6 0 1 1 20.6 11.6z"/><circle class="solid" cx="8.9" cy="11.6" r=".95"/><circle class="solid" cx="12" cy="11.6" r=".95"/><circle class="solid" cx="15.1" cy="11.6" r=".95"/>',
+  whatsapp:'<path d="M20.9 11.4a8.6 8.6 0 0 1-12.6 7.6l-4.9 1.6 1.6-4.9A8.6 8.6 0 1 1 20.9 11.4z"/><path class="solid" d="M9.4 8.9c0 3.1 2.6 5.7 5.7 5.7l.9-1.6-2-.9-.8.8a4.6 4.6 0 0 1-1.9-1.9l.8-.8-.9-2z"/>',
+  mail:'<rect x="2.6" y="5" width="18.8" height="14" rx="2.2"/><path d="M3.2 6.6 12 13l8.8-6.4"/>',
+  browser:'<circle cx="12" cy="12" r="8.8"/><ellipse cx="12" cy="12" rx="4" ry="8.8"/><path d="M3.4 12h17.2"/>',
+  camera:'<path d="M3 8.6A1.6 1.6 0 0 1 4.6 7h2.6L8.6 5h6.8l1.4 2h2.6A1.6 1.6 0 0 1 21 8.6v8.8a1.6 1.6 0 0 1-1.6 1.6H4.6A1.6 1.6 0 0 1 3 17.4z"/><circle cx="12" cy="13" r="3.5"/>',
+  photos:'<rect x="3" y="5" width="18" height="14" rx="2.2"/><path d="M3.4 16.6 8 12.2l3.9 3.5 3.3-2.9 4.4 4"/><circle cx="8.3" cy="9.4" r="1.5"/>',
+  music:'<path d="M9 17.4V5.2l10-2v12.2"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.4" r="2.5"/>',
+  maps:'<path d="M12 21.2s7-6.4 7-11.2a7 7 0 1 0-14 0c0 4.8 7 11.2 7 11.2z"/><circle cx="12" cy="10" r="2.6"/>',
+  weather:'<circle cx="8.4" cy="8.2" r="3.1"/><path d="M17.8 19H8.9a3.9 3.9 0 0 1-.4-7.8 5 5 0 0 1 9.5 1.4 3.2 3.2 0 0 1-.2 6.4z"/>',
+  calendar:'<rect x="3.4" y="5" width="17.2" height="15.2" rx="2.2"/><path d="M3.4 10h17.2M8 3.2v3.6M16 3.2v3.6"/>',
+  clock:'<circle cx="12" cy="12" r="8.6"/><path d="M12 6.8V12l3.4 2"/>',
+  notes:'<path d="M6.2 3.4h8.6L19 7.6V19.8a.9.9 0 0 1-.9.9H6.2a.9.9 0 0 1-.9-.9V4.3a.9.9 0 0 1 .9-.9z"/><path d="M14.6 3.6v4.2h4.2M8.6 12.4h6.8M8.6 16h6.8"/>',
+  files:'<path d="M3.4 6.6A1.6 1.6 0 0 1 5 5h4.3l1.8 2.2h7.9a1.6 1.6 0 0 1 1.6 1.6v9.2a1.6 1.6 0 0 1-1.6 1.6H5a1.6 1.6 0 0 1-1.6-1.6z"/>',
+  calc:'<rect x="4.6" y="3" width="14.8" height="18" rx="2.2"/><path d="M7.8 7.4h8.4M8.4 12.4h0M12 12.4h0M15.6 12.4h0M8.4 16.6h0M12 16.6h0M15.6 16.6h0"/>',
+  terminal:'<rect x="3" y="4.6" width="18" height="14.8" rx="2.2"/><path d="M7 10.2l3.1 2.6L7 15.4M12.6 15.6h4.6"/>',
+  radio:'<circle class="solid" cx="12" cy="12" r="2.2"/><path d="M8.3 8.3a5.2 5.2 0 0 0 0 7.4M15.7 15.7a5.2 5.2 0 0 0 0-7.4M5.5 5.5a9.2 9.2 0 0 0 0 13M18.5 18.5a9.2 9.2 0 0 0 0-13"/>',
+  settings:'<path d="M4 7h9.4M18.4 7H20M4 17h1.9M10.7 17H20"/><circle cx="16" cy="7" r="2.3"/><circle cx="8.3" cy="17" r="2.3"/>',
+
+  minecraft:'<path d="M12 3.2 20.2 7.6v8.8L12 20.8 3.8 16.4V7.6z"/><path d="M3.8 7.6 12 12l8.2-4.4M12 12v8.8"/>',
+  fortnite:'<path d="M4 10.6a8 8 0 0 1 16 0"/><path d="m4 10.6 6.4 3M20 10.6l-6.4 3M12 10.6v3"/><rect x="9.6" y="13.6" width="4.8" height="4.2" rx="1.1"/>',
+  roblox:'<rect x="4" y="7.2" width="16" height="11" rx="1.8"/><path d="M7.6 7.2V5.8a1 1 0 0 1 1-1H10a1 1 0 0 1 1 1v1.4M13.4 7.2V5.8a1 1 0 0 1 1-1h1.4a1 1 0 0 1 1 1v1.4"/>',
+  doom:'<circle cx="12" cy="12" r="7.4"/><path d="M12 1.9v4.3M12 17.8v4.3M1.9 12h4.3M17.8 12h4.3"/><circle class="solid" cx="12" cy="12" r="1.7"/>',
+  tetris:'<rect x="3.4" y="12.4" width="5.1" height="5.1" rx=".9"/><rect x="8.5" y="12.4" width="5.1" height="5.1" rx=".9"/><rect x="8.5" y="7.3" width="5.1" height="5.1" rx=".9"/><rect x="13.6" y="7.3" width="5.1" height="5.1" rx=".9"/>',
+  chess:'<circle cx="12" cy="6.8" r="2.8"/><path d="M9.2 11.2h5.6M10.4 11.2c0 3.1-1.4 4.5-1.7 7.4h6.6c-.3-2.9-1.7-4.3-1.7-7.4M7.3 18.6h9.4"/>',
+  wordle:'<rect x="2.6" y="8.6" width="5.6" height="6.8" rx="1"/><rect class="solid" x="9.2" y="8.6" width="5.6" height="6.8" rx="1"/><rect x="15.8" y="8.6" width="5.6" height="6.8" rx="1"/>',
+  g2048:'<rect x="3.4" y="3.4" width="7.5" height="7.5" rx="1.5"/><rect x="13.1" y="3.4" width="7.5" height="7.5" rx="1.5"/><rect x="3.4" y="13.1" width="7.5" height="7.5" rx="1.5"/><rect class="solid" x="13.1" y="13.1" width="7.5" height="7.5" rx="1.5"/>',
+  slither:'<path d="M20 12a8 8 0 1 1-8-8 6 6 0 0 1 6 6 4.4 4.4 0 0 1-4.4 4.4A3 3 0 0 1 10.6 11.4"/>',
+  solitaire:'<rect x="8" y="4.6" width="9.6" height="14" rx="1.8"/><path d="M5.6 7 3.9 7.6a1.3 1.3 0 0 0-.8 1.6l2.9 8.3"/><path class="solid" d="M12.8 8.6c1.7 1.5 2.7 2.5 2.7 3.6a1.7 1.7 0 0 1-2.7 1.3 1.7 1.7 0 0 1-2.7-1.3c0-1.1 1-2.1 2.7-3.6z"/>',
+  arcade:'<path d="M8.6 8h6.8a4.6 4.6 0 0 1 4.5 3.8l.7 3.9a2.7 2.7 0 0 1-4.9 2l-1.3-1.7H9.6l-1.3 1.7a2.7 2.7 0 0 1-4.9-2l.7-3.9A4.6 4.6 0 0 1 8.6 8z"/><path d="M7.6 12.3v2.4M6.4 13.5h2.4"/><circle class="solid" cx="15.6" cy="12.4" r="1"/><circle class="solid" cx="17.4" cy="14.3" r="1"/>'
+};
+
+/* ---------- build the grid ---------- */
+const grid = document.getElementById('apps');
+grid.innerHTML = GROUPS.map(g =>
+  (g.title ? `<h2 class="sec">${g.title}</h2>` : '') + g.items.map(tile).join('')
+).join('');
+
+function tile(a){
+  return `<button class="app" data-id="${a.id}">
+    <span class="tile" style="background:${a.color}">
+      <svg viewBox="0 0 24 24"${a.id === 'terminal' ? ' style="stroke:#4ADE80"' : ''}>${GLYPH[a.id]||''}</svg>
+    </span>
+    <span class="label">${a.name}</span>
+  </button>`;
+}
+
+grid.addEventListener('click', e => {
+  const btn = e.target.closest('.app');
+  if (!btn) return;
+  launch(ALL.find(a => a.id === btn.dataset.id));
+});
+
+function launch(app){
+  if (app.cmd) return run(app);
+  if (app.url) return openApp(app);
+  toast(`${app.name} has no target yet — give it a url or a cmd.`);
+}
+
+/* Native things (Doom, RetroArch, Solitaire) can't be opened from a page, so
+   they go through a small helper on the Pi that runs the command. */
+async function run(app){
+  try {
+    const res = await fetch('http://localhost:8080/launch', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cmd: app.cmd})
+    });
+    if (!res.ok) throw new Error(res.status);
+    toast(`Starting ${app.name}`);
+  } catch {
+    toast('Nothing answered on localhost:8080 — start the launcher helper.');
+  }
+}
+
+/* ---------- status bar ---------- */
+const clockEl = document.getElementById('clock');
+const dateEl  = document.getElementById('date');
+
+function tick(){
+  const d = new Date();
+  clockEl.textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12:false});
+  dateEl.textContent  = d.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'});
+  setTimeout(tick, 1000 - (Date.now() % 1000) + 20);   // stay aligned to the minute
+}
+tick();
+
+/* Tap the clock for the real viewport size — useful when the panel and the
+   window disagree about how wide the screen is. */
+clockEl.addEventListener('click', () => {
+  toast(`${innerWidth}\u00D7${innerHeight} css px \u00B7 dpr ${devicePixelRatio} \u00B7 screen ${screen.width}\u00D7${screen.height}`);
+});
+
+const fuel = document.getElementById('fuel');
+const bolt = document.getElementById('bolt');
+const pct  = document.getElementById('pct');
+
+/* Call this from your fuel gauge (PiSugar, MAX17048, whatever you fit):
+   setBattery(0.62, true)  */
+function setBattery(level, charging){
+  const l = Math.max(0, Math.min(1, level));
+  fuel.setAttribute('width', (15.8 * l).toFixed(1));
+  fuel.setAttribute('fill', l <= 0.15 && !charging ? '#F87171' : '#fff');
+  bolt.style.display = charging ? '' : 'none';
+  pct.textContent = Math.round(l * 100) + '%';
+}
+setBattery(1, false);
+
+if (navigator.getBattery) {
+  navigator.getBattery().then(b => {
+    const sync = () => setBattery(b.level, b.charging);
+    sync();
+    b.addEventListener('levelchange', sync);
+    b.addEventListener('chargingchange', sync);
+  }).catch(()=>{});
+}
+
+/* setSignal(0..4) — drive it from your modem's AT+CSQ if you add one */
+function setSignal(bars){
+  [...document.querySelectorAll('#signal rect')]
+    .forEach((r,i) => r.classList.toggle('off', i >= bars));
+}
+setSignal(4);
+
+const wifi = document.getElementById('wifi');
+const netState = () => wifi.classList.toggle('off', !navigator.onLine);
+addEventListener('online', netState);
+addEventListener('offline', netState);
+netState();
+
+/* ---------- scroll position indicator ---------- */
+const track = document.getElementById('track');
+const thumb = document.getElementById('thumb');
+
+function updateTrack(){
+  const {scrollTop, scrollHeight, clientHeight} = grid;
+  const overflow = scrollHeight - clientHeight;
+  track.classList.toggle('on', overflow > 6);
+  if (overflow <= 6) return;
+  const h = Math.max(24, clientHeight / scrollHeight * (clientHeight - 16));
+  thumb.style.height = h + 'px';
+  thumb.style.top = (scrollTop / overflow) * (clientHeight - 16 - h) + 'px';
+}
+grid.addEventListener('scroll', updateTrack, {passive:true});
+addEventListener('resize', updateTrack);
+updateTrack();
+
+/* ---------- toast ---------- */
+/* ---------- navigation ----------
+   Navigations inside the iframe land in the top-level joint session history,
+   so the parent's history.back() steps through them. Reading the iframe's own
+   history isn't possible once it's on another origin.                        */
+const frame   = document.getElementById('frame');
+const navBack = document.getElementById('navBack');
+let view = 'home';
+
+history.replaceState({view:'home'}, '');
+addEventListener('popstate', e => {
+  if (!e.state || e.state.view === 'home') showHome();
+});
+
+/* External pages get framed through the local proxy, which strips the
+   headers that would otherwise refuse embedding. Straight through when
+   the launcher is opened from file://, or when an app sets direct:true —
+   sites that fetch their own assets at runtime break behind the proxy,
+   because those fetches become cross-origin. */
+function frameURL(app){
+  const url = app.url;
+  if (app.direct) return url;
+  if (!/^https?:/i.test(url)) return url;
+  if (!/^https?:$/.test(location.protocol)) return url;
+  return '/proxy?url=' + encodeURIComponent(url);
+}
+
+function openApp(app){
+  history.pushState({view:'app'}, '');
+  view = 'app';
+  frame.src = frameURL(app);
+  frame.classList.add('on');
+  grid.classList.add('hidden');
+  track.classList.remove('on');
+  syncNav();
+}
+
+function showHome(){
+  view = 'home';
+  frame.classList.remove('on');
+  frame.src = 'about:blank';
+  grid.classList.remove('hidden');
+  updateTrack();
+  syncNav();
+}
+
+function syncNav(){ navBack.setAttribute('aria-disabled', view === 'home'); }
+
+navBack.addEventListener('click', () => {
+  if (view !== 'home') history.back();
+});
+
+document.getElementById('navHome').addEventListener('click', () => {
+  if (view === 'home') return;
+  history.replaceState({view:'home'}, '');   // leave the app's entries behind
+  showHome();
+});
+
+/* Recents: inert for now. */
+
+/* ---------- toast ---------- */
+let toastTimer;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('on'), 2200);
+}
+
+/* kiosk housekeeping */
+addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('dragstart', e => e.preventDefault());
+
+window.Infone = {setBattery, setSignal, launch, openApp, showHome, toast, APPS, GAMES};
+</script>
+</body>
+</html>

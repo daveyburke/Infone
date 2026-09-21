@@ -1,0 +1,14 @@
+[Unit]
+Description=Infone launcher helper
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/infone/infone-server.py
+Restart=always
+RestartSec=2
+# Needed so launched programs can find the compositor. Check the socket name
+# with: ls /run/user/$(id -u) | grep wayland
+Environment=WAYLAND_DISPLAY=wayland-0
+
+[Install]
+WantedBy=default.target
