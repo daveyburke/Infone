@@ -67,13 +67,13 @@ Then follow the instructions.
 mkdir -p ~/infone ~/.config/systemd/user
 ```
 
-Copy `infone.html` to `~/infone/`
-
-Copy `infone-helper.service` to `~/.config/systemd/user/`
+Copy `infone.html` to `~/infone/index.html`
 
 Copy `infone-server.py` to `~/infone/`
 
-Enable the service:
+Copy `infone-helper.service` to `~/.config/systemd/user/`
+
+Enable the service to start webserver at boot:
 
 ```bash
 systemctl --user daemon-reload
